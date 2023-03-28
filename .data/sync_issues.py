@@ -96,7 +96,18 @@ def process_directory(repo, path):
             files = list(repo.get_contents(item.path))
             try:
                 if not closed:
-                    severity = item.name.split("-")[1]
+                    directory_severity = None
+                    try:
+                        directory_severity = re.match(r"^(H|M|High|Medium)-\d+$", item.name, re.IGNORECASE).group(1).upper()[0]
+                    except Exception:
+                        pass
+                    if not directory_severity:
+                        try:
+                            directory_severity = re.match(r"^\d+-(H|M|High|Medium)$", item.name, re.IGNORECASE).group(1).upper()[0]
+                        except Exception:
+                            pass
+                    if directory_severity:
+                        severity = directory_severity
             except Exception:
                 pass
         else:
