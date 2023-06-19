@@ -133,6 +133,10 @@ This is a different issue with a different root cause from #169 as pointed out b
 
     Watsons who escalated this issue will have their escalation amount deducted from their next payout.
 
+**IAm0x52**
+
+Fixed [here](https://github.com/teller-protocol/teller-protocol-v2/pull/98) by restricting commitCollateral to only be called by TellerV2, which will never call commitCollateral on an active loan
+
 # Issue H-2: CollateralManager#commitCollateral can be called by anyone 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/169 
@@ -200,6 +204,14 @@ Thank you to the many many auditors who discovered this vulnerability.  Will fix
 **ethereumdegen**
 
 Github PR : [fix/sherlock/169](https://github.com/teller-protocol/teller-protocol-v2/tree/fix/sherlock/169)
+
+**IAm0x52**
+
+PR: [#98](https://github.com/teller-protocol/teller-protocol-v2/pull/98)
+
+**IAm0x52**
+
+Fix looks good. commitCollateral can now only be called by TellerV2
 
 # Issue H-3: CollateralManager#commitCollateral overwrites collateralInfo._amount if called with an existing collateral 
 
@@ -453,92 +465,15 @@ After further review and discussions, this is a valid high issue and the POC in 
 
     Contestants' payouts and scores will be updated according to the changes made on this issue.
 
-# Issue H-4: CollateralManager#setCollateralEscrowBeacon lacks access control allowing anyone to set the beacon implementation and steal all escrowed funds 
+**IAm0x52**
 
-Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/182 
+PR: [#101](https://github.com/teller-protocol/teller-protocol-v2/pull/101)
 
-## Found by 
-0x52, 8olidity, Dug, Inspex, cducrest-brainbot, chaduke, dingo, evilakela, nicobevi, shaka, warRoom
-## Summary
+**IAm0x52**
 
-CollateralManager#setCollateralEscrowBeacon lacks access control allowing anyone to set the beacon implementation. After the initialize function is called initialized will be set to 1. Since CollateralManager#setCollateralEscrowBeacon has the modifier reinitialize(2) this can be called again to change the escrow implementation and steal user funds
+Fix looks good. Commit will revert if collateral is already present
 
-## Vulnerability Detail
-
-[CollateralManager.sol#L91-L96](https://github.com/sherlock-audit/2023-03-teller/blob/main/teller-protocol-v2/packages/contracts/contracts/CollateralManager.sol#L91-L96)
-
-    function setCollateralEscrowBeacon(address _collateralEscrowBeacon)
-        external
-        reinitializer(2)
-    {
-        collateralEscrowBeacon = _collateralEscrowBeacon;
-    }
-
-setCollateralEscrowBeacon can be used by anyone once to change the escrow implementation which can be used to steal all the funds in the escrow contracts.
-
-## Impact
-
-All escrowed funds can be stolen
-
-## Code Snippet
-
-[CollateralManager.sol#L91-L96](https://github.com/sherlock-audit/2023-03-teller/blob/main/teller-protocol-v2/packages/contracts/contracts/CollateralManager.sol#L91-L96)
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-
-Restrict upgrade to owner:
-
-    function setCollateralEscrowBeacon(address _collateralEscrowBeacon)
-        external
-    +   OnlyOwner()
-        reinitializer(2)
-    {
-        collateralEscrowBeacon = _collateralEscrowBeacon;
-    }
-
-
-
-## Discussion
-
-**ethereumdegen**
-
-A unit tests exists that proves that once this function is called once, it can never be called again :
-
-
-    function test_setCollateralEscrowBeacon() public {
-        // Deploy implementation
-        CollateralEscrowV1 escrowImplementation = new CollateralEscrowV1_Mock();
-        // Deploy beacon contract with implementation
-        UpgradeableBeacon escrowBeacon = new UpgradeableBeacon(
-            address(escrowImplementation)
-        );
-
-        collateralManager.setCollateralEscrowBeacon(address(escrowBeacon));
-
-        //how to test ?
-    }
-
-    function test_setCollateralEscrowBeacon_invalid_twice() public {
-        CollateralEscrowV1 escrowImplementation = new CollateralEscrowV1_Mock();
-        // Deploy beacon contract with implementation
-        UpgradeableBeacon escrowBeacon = new UpgradeableBeacon(
-            address(escrowImplementation)
-        );
-        collateralManager.setCollateralEscrowBeacon(address(escrowBeacon));
-
-        vm.expectRevert("Initializable: contract is already initialized");
-        collateralManager.setCollateralEscrowBeacon(address(escrowBeacon));
-        //
-    }
-
-
-However it does seem wise to add an extra precaution and to add an onlyOwner modifier here 
-
-# Issue H-5: _repayLoan will fail if lender is blacklisted 
+# Issue H-4: _repayLoan will fail if lender is blacklisted 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/212 
 
@@ -628,7 +563,35 @@ Use a push/pull pattern for transferring tokens. Allow repayment of loan and wit
 
 
 
-# Issue H-6: Malicious user can abuse UpdateCommitment to create commitments for other users 
+
+
+## Discussion
+
+**ethereumdegen**
+
+We feel as though this is technically a valid issue but 
+1) hopefully it is extremely rare and edge-case 
+2) it is so rare that it doesnt justify such a large change to the protocol and reducing UX flow for the entire system (an extra tx to withdraw funds)
+3) and finally, borrowers just have to be aware of the extra risk posed when using tokens which have 'denylists' in them or freezing capabilities and also should justify the risks of the particular party acting as the lender (if lender is likely to have assets frozen, do not borrow from them, etc.)   .  
+
+**IAm0x52**
+
+Sponsor has acknowledged this risk
+
+**ethereumdegen**
+
+Okay so after further review we did make a PR to make an option to pay into an escrow vault.  This escrow vault is a new contract,  a simple smart contract wallet to hold funds for a lender in the event that their account is not able to receive tokens.  This way, borrowers can repay loans regardless.  
+PR: https://github.com/teller-protocol/teller-protocol-v2/pull/105
+
+**IAm0x52**
+
+Fix looks good. Contract now utilizes an escrow contract that will receive tokens in the event that the lender is unable to receive the repayment directly. This ensures that repayment is always possible. 
+
+**jacksanford1**
+
+Teller decided to fix this issue, so changing label to "Will Fix".
+
+# Issue H-5: Malicious user can abuse UpdateCommitment to create commitments for other users 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/260 
 
@@ -689,6 +652,10 @@ Thank you for this feedback.  This is a high severity issue as it could be used 
 **passabilities**
 
 https://github.com/teller-protocol/teller-protocol-v2/pull/67
+
+**IAm0x52**
+
+Fix looks good. _commitment.lender (updated lender) is now required to be msg.sender
 
 # Issue M-1: lender could be forced to withdraw collateral even if he/she would rather wait for liquidation during default 
 
@@ -825,6 +792,10 @@ As the Lead judge pointed out The impact of this issue is a medium. There is no 
 
     Watsons who escalated this issue will have their escalation amount deducted from their next payout.
 
+**IAm0x52**
+
+Fix looks good. Collateral can now only be withdrawn by the appropriate party. Borrower if paid in full or lender/owner of loan NFT if defaulted.
+
 # Issue M-2: The calculation time methods of `calculateNextDueDate` and `_canLiquidateLoan` are inconsistent 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/78 
@@ -908,6 +879,10 @@ It is recommended to verify that the liquidation time point cannot be shorter th
 **ethereumdegen**
 
 Github PR: [Issue 494 - improving logic for is loan liquidateable](https://github.com/teller-protocol/teller-protocol-v2/pull/91)
+
+**IAm0x52**
+
+Fix looks good. Liquidation logic has been revised to align it with dueDate 
 
 # Issue M-3: updateCommitmentBorrowers does not delete all existing users 
 
@@ -997,6 +972,13 @@ In order to clean an `EnumerableSet`, you can either remove all elements one by 
 **ethereumdegen**
 
 Github PR : [Issue 88 - Changing the way borrowers are updated for Lender Commitment](https://github.com/teller-protocol/teller-protocol-v2/pull/90)
+
+**IAm0x52**
+
+Fix looks good. updateCommitmentBorrowers has been split into two separate functions:
+
+addCommitmentBorrowers - Explicitly adds borrowers listed
+removeCommitmentBorrowers - Explicitly removes borrowers listed
 
 # Issue M-4: If the collateral is a fee-on-transfer token, repayment will be blocked 
 
@@ -1179,6 +1161,10 @@ This issue is a valid medium as fee-on-transfer tokens are in scope.
 
     Contestants' payouts and scores will be updated according to the changes made on this issue.
 
+**IAm0x52**
+
+Fix looks good. Repaying a loan in full no longer forces withdrawing collateral, preventing the repay call from reverting
+
 # Issue M-5: Lender can take borrower's collateral before first payment due 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/92 
@@ -1306,6 +1292,14 @@ As opposed to the other past issues mentioned in the escalation have a logical f
 
     Watsons who escalated this issue will have their escalation amount deducted from their next payout.
 
+**ethereumdegen**
+
+This is a non-issue because borrowers will be able to validate the default duration of a loan before agreeing to it.  If they agree to a very short default duration, that is their choice.    It does make sense to enforce a default duration longer than 1 payment cycle for ux purposes but i see that as an optional 'nice to have.'  it will just be important to clearly communicate the default duration to borrowers.  
+
+**IAm0x52**
+
+Sponsor has acknowledged this risk
+
 # Issue M-6: LenderCommitmentForwarder#updateCommitment can be front-run by malicious borrower to cause lender to over-commit funds 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/176 
@@ -1370,6 +1364,10 @@ The only viable solution is to add a mapping that keeps track of how much capita
 **ethereumdegen**
 
 Github PR: [Issue 176 - fixing frontrun attackability of commitment maxPrincipal](https://github.com/teller-protocol/teller-protocol-v2/pull/82)
+
+**IAm0x52**
+
+Fix looks good. Now tracks the amount of allocated principle instead of decrementing the max principal of the commitment.
 
 # Issue M-7: Bid submission vulnerable to market parameters changes 
 
@@ -1453,6 +1451,16 @@ The way the protocol was designed, market owners are 'trusted' however we will a
 **ethereumdegen**
 
 Github PR: [Issue 205 - Harden submitBid from frontrun attacks by market owner](https://github.com/teller-protocol/teller-protocol-v2/pull/83)
+
+**ethereumdegen**
+
+A fix was made but it is not being applied at this time because it would create too drastic of a change to the ABI, the way that contracts interact with submitBid.   Furthermore, at the time, market owners are 'trusted' and so there is not a concern that they will frontrun.  
+
+When we do decide to open up the ability for anyone to be a market owner, we will revisit this fix and implement a protection strategy against front running the fees in the way or add a hard-cap to the fee such as 10% in order to not impact the ABI. 
+
+**IAm0x52**
+
+Sponsor has acknowledged this risk
 
 # Issue M-8: EMI last payment not handled perfectly could lead to borrower losing collaterals 
 
@@ -1614,6 +1622,14 @@ Sponsor comment:
 
     Watsons who escalated this issue will have their escalation amount deducted from their next payout.
 
+**ethereumdegen**
+
+PR fix: https://github.com/teller-protocol/teller-protocol-v2/pull/99
+
+**IAm0x52**
+
+Fix looks good. owedAmount calculation has been slightly modified so that it will won't final payment amount by owedTime which will result in a complete repayment of the principal 
+
 # Issue M-9: defaulting doesn't change the state of the loan 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/317 
@@ -1651,6 +1667,24 @@ Manual Review
 ## Recommendation
 Remove the possibility for the lender to default the loan in `CollateralManager`. Move defaulting to `TellerV2` so it can properly close the loan.
 
+
+
+
+## Discussion
+
+**ethereumdegen**
+
+
+PR (draft): https://github.com/teller-protocol/teller-protocol-v2/pull/103  
+(also see issue 311)
+
+**IAm0x52**
+
+Confirming this fix for 311/317. Looks good. When a lender claims collateral from an overdue loan, the status of the loan is changed to "CLOSED" preventing any further repayment from the borrower.
+
+**jacksanford1**
+
+Changed label to Will Fix since Teller ended up making a fix (and 0x52 reviewed it). 
 
 # Issue M-10: bids can be created against markets that doesn't exist 
 
@@ -1924,6 +1958,10 @@ Based on the above comments, This is a valid issue confirmed by the sponsor and 
     This issue's escalations have been accepted!
 
     Contestants' payouts and scores will be updated according to the changes made on this issue.
+
+**IAm0x52**
+
+Fix looks good. Creates and utilizes a new check called "isMarketOpen" which requires that specified market exists
 
 # Issue M-11: last repayments are calculated incorrectly for "irregular" loan durations 
 
@@ -2270,6 +2308,10 @@ The library is used in the in-scope contract and the error impacts an in-scope c
 
     Watsons who escalated this issue will have their escalation amount deducted from their next payout.
 
+**IAm0x52**
+
+Fix looks good. Final repayment period is now calculated via modulo which allows it to correctly detect the final payment cycle for loans of irregular duration
+
 # Issue M-12: setLenderManager may cause some Lenders to lose their assets 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/339 
@@ -2397,6 +2439,10 @@ Consider using MAGIC_NUMBER as bid.lender in claimLoanNFT and using that MAGIC_N
 **ethereumdegen**
 
 Github PR [Issue 339 - Using magic number for lender manager control](https://github.com/teller-protocol/teller-protocol-v2/pull/94)
+
+**IAm0x52**
+
+Fix looks good. Changed as recommended and is now using a magic number rather than the address of the lenderManager.
 
 # Issue M-13: A borrower/lender or liquidator will fail to withdraw the collateral assets due to reaching a gas limit 
 
@@ -2713,6 +2759,10 @@ This can be considered as a valid medium.
 
     Contestants' payouts and scores will be updated according to the changes made on this issue.
 
+**IAm0x52**
+
+Fixed [here](https://github.com/teller-protocol/teller-protocol-v2/pull/69/files) by separating withdraw and repay logic
+
 # Issue M-14: Premature Liquidation When a Borrower Pays early 
 
 Source: https://github.com/sherlock-audit/2023-03-teller-judging/issues/494 
@@ -2759,6 +2809,10 @@ In this logic, we should be calculating the default date(s) based relative to a 
 **ethereumdegen**
 
 Github PR: [Issue 494 - improving logic for is loan liquidateable](https://github.com/teller-protocol/teller-protocol-v2/pull/91)
+
+**IAm0x52**
+
+Fix looks good. Default date is now calculated from due date rather than repaid date
 
 # Issue M-15: A malicious market owner/protocol owner can front-run calls to lenderAcceptBid and change the marketplace fee to steal lender funds 
 
@@ -2900,4 +2954,8 @@ This is a valid issue and protocol expected this to be audited and is mentioned 
     This issue's escalations have been rejected!
 
     Watsons who escalated this issue will have their escalation amount deducted from their next payout.
+
+**IAm0x52**
+
+Fix looks good. LenderAcceptBid now allows users to specify a max fee
 
